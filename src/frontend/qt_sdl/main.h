@@ -32,7 +32,7 @@
 #include <QOpenGLWidget>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
-#include <QOpenGLFunctions_3_2_Core>
+#include <QOpenGLExtraFunctions>
 #include <QOpenGLShaderProgram>
 
 #include "FrontendUtil.h"
@@ -148,7 +148,7 @@ private:
 };
 
 
-class ScreenPanelGL : public QOpenGLWidget, public ScreenHandler, protected QOpenGLFunctions_3_2_Core
+class ScreenPanelGL : public QOpenGLWidget, public ScreenHandler, protected QOpenGLExtraFunctions
 {
     Q_OBJECT
 
