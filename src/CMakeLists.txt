@@ -2,7 +2,10 @@ project(core)
 
 set (CMAKE_CXX_STANDARD 17)
 
+add_subdirectory(X-RPC)
+
 add_library(core STATIC
+            rpc/RpcServer.cpp
 	ARCodeFile.cpp
 	AREngine.cpp
 	ARM.cpp
@@ -111,16 +114,16 @@ if (ENABLE_OGLRENDERER)
 
     target_include_directories(core PRIVATE ${EPOXY_INCLUDE_DIRS})
     if (WIN32)
-        target_link_libraries(core ole32 comctl32 ws2_32 ${EPOXY_LIBRARIES})
+        target_link_libraries(core ole32 comctl32 ws2_32 X-RPC ${EPOXY_LIBRARIES})
     elseif (APPLE)
-        target_link_libraries(core ${EPOXY_LIBRARIES})
+        target_link_libraries(core ${EPOXY_LIBRARIES} X-RPC)
     else()
-        target_link_libraries(core rt ${EPOXY_LIBRARIES})
+        target_link_libraries(core rt ${EPOXY_LIBRARIES} X-RPC)
     endif()
 else()
 	if (WIN32)
-		target_link_libraries(core ole32 comctl32 ws2_32)
+		target_link_libraries(core ole32 comctl32 ws2_32 X-RPC)
 	else()
-		target_link_libraries(core rt)
+		target_link_libraries(core rt X-RPC)
 	endif()
 endif()

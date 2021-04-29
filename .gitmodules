@@ -1,0 +1,3 @@
+[submodule "src/X-RPC"]
+	path = src/X-RPC
+	url = https://github.com/pokelinkapp/X-RPC.git

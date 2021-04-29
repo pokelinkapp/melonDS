@@ -41,6 +41,7 @@
 
 #include "DSi.h"
 #include "DSi_SPI_TSC.h"
+#include "rpc/RpcServer.h"
 
 
 namespace NDS
@@ -206,6 +207,8 @@ bool Init()
 
     if (!AREngine::Init()) return false;
 
+    StartRPC(23457, &ARM9Read8);
+
     return true;
 }
 
@@ -233,6 +236,8 @@ void DeInit()
     DSi::DeInit();
 
     AREngine::DeInit();
+
+    StopRPC();
 }
 
 
