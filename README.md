@@ -8,8 +8,9 @@
 <br>
 <a href="https://github.com/Arisotura/melonDS/actions?query=workflow%3A%22CMake+Build+%28Windows+x86-64%29%22+event%3Apush"><img src="https://img.shields.io/github/workflow/status/Arisotura/melonDS/CMake%20Build%20(Windows%20x86-64)?label=Windows%20x86-64&logo=GitHub"></img></a>
 <a href="https://github.com/Arisotura/melonDS/actions?query=workflow%3A%22CMake+Build+%28Ubuntu+x86-64%29%22+event%3Apush"><img src="https://img.shields.io/github/workflow/status/Arisotura/melonDS/CMake%20Build%20(Ubuntu%20x86-64)?label=Linux%20x86-64&logo=GitHub"></img></a>
-<a href="https://dev.azure.com/melonDS/melonDS/_build?definitionId=1&repositoryFilter=1&branchFilter=2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2"><img src="https://img.shields.io/azure-devops/build/melonDS/7c9c08a1-669f-42a4-bef4-a6c74eadf723/1/master?label=macOS%20x86-64&logo=Azure%20Pipelines"></img></a>
 <a href="https://github.com/Arisotura/melonDS/actions?query=workflow%3A%22CMake+Build+%28Ubuntu+aarch64%29%22+event%3Apush"><img src="https://img.shields.io/github/workflow/status/Arisotura/melonDS/CMake%20Build%20(Ubuntu%20aarch64)?label=Linux%20ARM64&logo=GitHub"></img></a>
+<a href="https://dev.azure.com/melonDS/melonDS/_build?definitionId=1&repositoryFilter=1&branchFilter=2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2"><img src="https://img.shields.io/azure-devops/build/melonDS/7c9c08a1-669f-42a4-bef4-a6c74eadf723/1/master?label=macOS%20x86-64&logo=Azure%20Pipelines"></img></a>
+<a href="https://dev.azure.com/melonDS/melonDS/_build?definitionId=2&_a=summary&repositoryFilter=1&branchFilter=2%2C2%2C2%2C2%2C2"><img src="https://img.shields.io/azure-devops/build/melonDS/7c9c08a1-669f-42a4-bef4-a6c74eadf723/2/master?label=macOS%20ARM64&logo=Azure%20Pipelines"></img></a>
 </p>
 DS emulator, sorta
 
@@ -49,8 +50,6 @@ As for the rest, the interface should be pretty straightforward. If you have a q
   ```
 3. Compile:
   ```bash
-  mkdir -p build
-  cd build
   cmake ..
   make -j$(nproc --all)
   ```
@@ -88,7 +87,7 @@ If everything went well, melonDS should now be in the `dist` folder.
 
 ### macOS:
 1. Install the [Homebrew Package Manager](https://brew.sh)
-2. Install dependencies: `brew install git pkg-config cmake sdl2 qt@5 libslirp libarchive libepoxy`
+2. Install dependencies: `brew install git pkg-config cmake sdl2 qt@6 libslirp libarchive libepoxy`
 3. Download the melonDS repository and prepare:
   ```zsh
   git clone https://github.com/Arisotura/melonDS
@@ -97,11 +96,10 @@ If everything went well, melonDS should now be in the `dist` folder.
   ```
 4. Compile:
    ```zsh
-   cmake .. -DCMAKE_PREFIX_PATH="$(brew --prefix qt@5);$(brew --prefix libarchive)" -DMACOS_BUNDLE_LIBS=ON 
+   cmake .. -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6);$(brew --prefix libarchive)" -DUSE_QT6=ON -DMACOS_BUNDLE_LIBS=ON
    make -j$(sysctl -n hw.logicalcpu)
-   mkdir dist && cp -r melonDS.app dist
    ```
-If everything went well, melonDS.app should now be in the `dist` folder.
+If everything went well, melonDS.app should now be in the current directory.
 
    
 ## TODO LIST

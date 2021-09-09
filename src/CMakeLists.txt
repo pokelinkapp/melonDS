@@ -18,10 +18,13 @@ add_library(core STATIC
 	CP15.cpp
 	CRC32.cpp
 	DMA.cpp
+	DMA_Timings.h
 	DSi.cpp
 	DSi_AES.cpp
 	DSi_Camera.cpp
+	DSi_DSP.cpp
 	DSi_I2C.cpp
+	DSi_NAND.cpp
 	DSi_NDMA.cpp
 	DSi_NWifi.cpp
 	DSi_SD.cpp
@@ -48,6 +51,13 @@ add_library(core STATIC
 	Wifi.cpp
 	WifiAP.cpp
 
+	fatfs/diskio.c
+	fatfs/ff.c
+	fatfs/ffsystem.c
+	fatfs/ffunicode.c
+	fatfs/ffconf.h
+	
+	sha1/sha1.c
 	tiny-AES-c/aes.c
 	xxhash/xxhash.c
 )
@@ -103,10 +113,9 @@ if (ENABLE_JIT)
 	endif()
 endif()
 
-if (APPLE)
-        target_include_directories(core PUBLIC /usr/local/include /opt/homebrew/include)
-        target_link_directories(core PUBLIC /usr/local/lib /opt/homebrew/lib)
-endif()
+add_subdirectory(teakra EXCLUDE_FROM_ALL)
+target_link_libraries(core teakra)
+
 
 if (ENABLE_OGLRENDERER)
     find_package(PkgConfig REQUIRED)
@@ -126,4 +135,8 @@ else()
 	else()
 		target_link_libraries(core rt X-RPC)
 	endif()
+endif()
+
+if (ENABLE_JIT_PROFILING)
+	target_link_libraries(core jitprofiling)
 endif()

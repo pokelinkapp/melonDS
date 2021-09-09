@@ -18,6 +18,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 #include "Config.h"
 #include "NDS.h"
 #include "ARM.h"
@@ -71,8 +72,10 @@ namespace NDS
 
 int ConsoleType;
 
-u8 ARM9MemTimings[0x40000][4];
+u8 ARM9MemTimings[0x40000][8];
+u32 ARM9Regions[0x40000];
 u8 ARM7MemTimings[0x20000][4];
+u32 ARM7Regions[0x20000];
 
 ARMv5* ARM9;
 ARMv4* ARM7;
@@ -164,7 +167,6 @@ bool Running;
 
 bool RunningGame;
 
-
 void DivDone(u32 param);
 void SqrtDone(u32 param);
 void RunTimer(u32 tid, s32 cycles);
@@ -241,14 +243,12 @@ void DeInit()
 }
 
 
-void SetARM9RegionTimings(u32 addrstart, u32 addrend, int buswidth, int nonseq, int seq)
+void SetARM9RegionTimings(u32 addrstart, u32 addrend, u32 region, int buswidth, int nonseq, int seq)
 {
-    addrstart >>= 14;
-    addrend   >>= 14;
+    addrstart >>= 2;
+    addrend   >>= 2;
 
-    if (addrend == 0x3FFFF) addrend++;
-
-    int N16, S16, N32, S32;
+    int N16, S16, N32, S32, cpuN;
     N16 = nonseq;
     S16 = seq;
     if (buswidth == 16)
@@ -262,25 +262,33 @@ void SetARM9RegionTimings(u32 addrstart, u32 addrend, int buswidth, int nonseq, 
         S32 = S16;
     }
 
+    // nonseq accesses on the CPU get a 3-cycle penalty for all regions except main RAM
+    cpuN = (region == Mem9_MainRAM) ? 0 : 3;
+
     for (u32 i = addrstart; i < addrend; i++)
     {
-        ARM9MemTimings[i][0] = N16;
+        // CPU timings
+        ARM9MemTimings[i][0] = N16 + cpuN;
         ARM9MemTimings[i][1] = S16;
-        ARM9MemTimings[i][2] = N32;
+        ARM9MemTimings[i][2] = N32 + cpuN;
         ARM9MemTimings[i][3] = S32;
+
+        // DMA timings
+        ARM9MemTimings[i][4] = N16;
+        ARM9MemTimings[i][5] = S16;
+        ARM9MemTimings[i][6] = N32;
+        ARM9MemTimings[i][7] = S32;
+
+        ARM9Regions[i] = region;
     }
 
-    ARM9->UpdateRegionTimings(addrstart<<14, addrend == 0x40000
-        ? 0xFFFFFFFF
-        : (addrend<<14));
+    ARM9->UpdateRegionTimings(addrstart<<2, addrend<<2);
 }
 
-void SetARM7RegionTimings(u32 addrstart, u32 addrend, int buswidth, int nonseq, int seq)
+void SetARM7RegionTimings(u32 addrstart, u32 addrend, u32 region, int buswidth, int nonseq, int seq)
 {
-    addrstart >>= 15;
-    addrend   >>= 15;
-
-    if (addrend == 0x1FFFF) addrend++;
+    addrstart >>= 3;
+    addrend   >>= 3;
 
     int N16, S16, N32, S32;
     N16 = nonseq;
@@ -298,10 +306,13 @@ void SetARM7RegionTimings(u32 addrstart, u32 addrend, int buswidth, int nonseq, 
 
     for (u32 i = addrstart; i < addrend; i++)
     {
+        // CPU and DMA timings are the same
         ARM7MemTimings[i][0] = N16;
         ARM7MemTimings[i][1] = S16;
         ARM7MemTimings[i][2] = N32;
         ARM7MemTimings[i][3] = S32;
+
+        ARM7Regions[i] = region;
     }
 }
 
@@ -312,32 +323,32 @@ void InitTimings()
     // Similarly for any unmapped VRAM area.
     // Need to check whether supporting these timing characteristics would impact performance
     // (especially wrt VRAM mirroring and overlapping and whatnot).
+    // Also, each VRAM bank is its own memory region. This would matter when DMAing from a VRAM
+    // bank to another (if this is a thing) for example.
 
-    // ARM9
-    // TODO: +3c nonseq waitstate doesn't apply to DMA!
-    // but of course mainRAM always gets 8c nonseq waitstate
+    // TODO: check in detail how WRAM works, although it seems to be one region.
 
     // TODO: DSi-specific timings!!
 
-    SetARM9RegionTimings(0x00000000, 0xFFFFFFFF, 32, 1 + 3, 1); // void
+    SetARM9RegionTimings(0x00000, 0x100000, 0, 32, 1, 1); // void
 
-    SetARM9RegionTimings(0xFFFF0000, 0xFFFFFFFF, 32, 1 + 3, 1); // BIOS
-    SetARM9RegionTimings(0x02000000, 0x03000000, 16, 8, 1);     // main RAM
-    SetARM9RegionTimings(0x03000000, 0x04000000, 32, 1 + 3, 1); // ARM9/shared WRAM
-    SetARM9RegionTimings(0x04000000, 0x05000000, 32, 1 + 3, 1); // IO
-    SetARM9RegionTimings(0x05000000, 0x06000000, 16, 1 + 3, 1); // palette
-    SetARM9RegionTimings(0x06000000, 0x07000000, 16, 1 + 3, 1); // VRAM
-    SetARM9RegionTimings(0x07000000, 0x08000000, 32, 1 + 3, 1); // OAM
+    SetARM9RegionTimings(0xFFFF0, 0x100000, Mem9_BIOS,    32, 1, 1); // BIOS
+    SetARM9RegionTimings(0x02000, 0x03000,  Mem9_MainRAM, 16, 8, 1);     // main RAM
+    SetARM9RegionTimings(0x03000, 0x04000,  Mem9_WRAM,    32, 1, 1); // ARM9/shared WRAM
+    SetARM9RegionTimings(0x04000, 0x05000,  Mem9_IO,      32, 1, 1); // IO
+    SetARM9RegionTimings(0x05000, 0x06000,  Mem9_Pal,     16, 1, 1); // palette
+    SetARM9RegionTimings(0x06000, 0x07000,  Mem9_VRAM,    16, 1, 1); // VRAM
+    SetARM9RegionTimings(0x07000, 0x08000,  Mem9_OAM,     32, 1, 1); // OAM
 
     // ARM7
 
-    SetARM7RegionTimings(0x00000000, 0xFFFFFFFF, 32, 1, 1); // void
+    SetARM7RegionTimings(0x00000, 0x100000, 0, 32, 1, 1); // void
 
-    SetARM7RegionTimings(0x00000000, 0x00010000, 32, 1, 1); // BIOS
-    SetARM7RegionTimings(0x02000000, 0x03000000, 16, 8, 1); // main RAM
-    SetARM7RegionTimings(0x03000000, 0x04000000, 32, 1, 1); // ARM7/shared WRAM
-    SetARM7RegionTimings(0x04000000, 0x04800000, 32, 1, 1); // IO
-    SetARM7RegionTimings(0x06000000, 0x07000000, 16, 1, 1); // ARM7 VRAM
+    SetARM7RegionTimings(0x00000, 0x00010, Mem7_BIOS,    32, 1, 1); // BIOS
+    SetARM7RegionTimings(0x02000, 0x03000, Mem7_MainRAM, 16, 8, 1); // main RAM
+    SetARM7RegionTimings(0x03000, 0x04000, Mem7_WRAM,    32, 1, 1); // ARM7/shared WRAM
+    SetARM7RegionTimings(0x04000, 0x04800, Mem7_IO,      32, 1, 1); // IO
+    SetARM7RegionTimings(0x06000, 0x07000, Mem7_VRAM,    16, 1, 1); // ARM7 VRAM
 
     // handled later: GBA slot, wifi
 }
@@ -346,89 +357,86 @@ void SetupDirectBoot()
 {
     if (ConsoleType == 1)
     {
-        printf("!! DIRECT BOOT NOT SUPPORTED IN DSI MODE\n");
-        return;
+        DSi::SetupDirectBoot();
     }
-
-    u32 bootparams[8];
-    memcpy(bootparams, &NDSCart::CartROM[0x20], 8*4);
-
-    printf("ARM9: offset=%08X entry=%08X RAM=%08X size=%08X\n",
-           bootparams[0], bootparams[1], bootparams[2], bootparams[3]);
-    printf("ARM7: offset=%08X entry=%08X RAM=%08X size=%08X\n",
-           bootparams[4], bootparams[5], bootparams[6], bootparams[7]);
-
-    MapSharedWRAM(3);
-
-    u32 arm9start = 0;
-
-    // load the ARM9 secure area
-    if (bootparams[0] >= 0x4000 && bootparams[0] < 0x8000)
+    else
     {
-        u8 securearea[0x800];
-        NDSCart::DecryptSecureArea(securearea);
+        MapSharedWRAM(3);
 
-        for (u32 i = 0; i < 0x800; i+=4)
+        u32 arm9start = 0;
+
+        // load the ARM9 secure area
+        if (NDSCart::Header.ARM9ROMOffset >= 0x4000 && NDSCart::Header.ARM9ROMOffset < 0x8000)
         {
-            ARM9Write32(bootparams[2]+i, *(u32*)&securearea[i]);
-            arm9start += 4;
+            u8 securearea[0x800];
+            NDSCart::DecryptSecureArea(securearea);
+
+            for (u32 i = 0; i < 0x800; i+=4)
+            {
+                ARM9Write32(NDSCart::Header.ARM9RAMAddress+i, *(u32*)&securearea[i]);
+                arm9start += 4;
+            }
         }
+
+        // CHECKME: firmware seems to load this in 0x200 byte chunks
+
+        for (u32 i = arm9start; i < NDSCart::Header.ARM9Size; i+=4)
+        {
+            u32 tmp = *(u32*)&NDSCart::CartROM[NDSCart::Header.ARM9ROMOffset+i];
+            ARM9Write32(NDSCart::Header.ARM9RAMAddress+i, tmp);
+        }
+
+        for (u32 i = 0; i < NDSCart::Header.ARM7Size; i+=4)
+        {
+            u32 tmp = *(u32*)&NDSCart::CartROM[NDSCart::Header.ARM7ROMOffset+i];
+            ARM7Write32(NDSCart::Header.ARM7RAMAddress+i, tmp);
+        }
+
+        for (u32 i = 0; i < 0x170; i+=4)
+        {
+            u32 tmp = *(u32*)&NDSCart::CartROM[i];
+            ARM9Write32(0x027FFE00+i, tmp);
+        }
+
+        ARM9Write32(0x027FF800, NDSCart::CartID);
+        ARM9Write32(0x027FF804, NDSCart::CartID);
+        ARM9Write16(0x027FF808, NDSCart::Header.HeaderCRC16);
+        ARM9Write16(0x027FF80A, NDSCart::Header.SecureAreaCRC16);
+
+        ARM9Write16(0x027FF850, 0x5835);
+
+        ARM9Write32(0x027FFC00, NDSCart::CartID);
+        ARM9Write32(0x027FFC04, NDSCart::CartID);
+        ARM9Write16(0x027FFC08, NDSCart::Header.HeaderCRC16);
+        ARM9Write16(0x027FFC0A, NDSCart::Header.SecureAreaCRC16);
+
+        ARM9Write16(0x027FFC10, 0x5835);
+        ARM9Write16(0x027FFC30, 0xFFFF);
+        ARM9Write16(0x027FFC40, 0x0001);
+
+        ARM7BIOSProt = 0x1204;
+
+        SPI_Firmware::SetupDirectBoot(false);
     }
-
-    // CHECKME: firmware seems to load this in 0x200 byte chunks
-
-    for (u32 i = arm9start; i < bootparams[3]; i+=4)
-    {
-        u32 tmp = *(u32*)&NDSCart::CartROM[bootparams[0]+i];
-        ARM9Write32(bootparams[2]+i, tmp);
-    }
-
-    for (u32 i = 0; i < bootparams[7]; i+=4)
-    {
-        u32 tmp = *(u32*)&NDSCart::CartROM[bootparams[4]+i];
-        ARM7Write32(bootparams[6]+i, tmp);
-    }
-
-    for (u32 i = 0; i < 0x170; i+=4)
-    {
-        u32 tmp = *(u32*)&NDSCart::CartROM[i];
-        ARM9Write32(0x027FFE00+i, tmp);
-    }
-
-    ARM9Write32(0x027FF800, NDSCart::CartID);
-    ARM9Write32(0x027FF804, NDSCart::CartID);
-    ARM9Write16(0x027FF808, *(u16*)&NDSCart::CartROM[0x15E]);
-    ARM9Write16(0x027FF80A, *(u16*)&NDSCart::CartROM[0x6C]);
-
-    ARM9Write16(0x027FF850, 0x5835);
-
-    ARM9Write32(0x027FFC00, NDSCart::CartID);
-    ARM9Write32(0x027FFC04, NDSCart::CartID);
-    ARM9Write16(0x027FFC08, *(u16*)&NDSCart::CartROM[0x15E]);
-    ARM9Write16(0x027FFC0A, *(u16*)&NDSCart::CartROM[0x6C]);
-
-    ARM9Write16(0x027FFC10, 0x5835);
-    ARM9Write16(0x027FFC30, 0xFFFF);
-    ARM9Write16(0x027FFC40, 0x0001);
 
     ARM9->CP15Write(0x910, 0x0300000A);
     ARM9->CP15Write(0x911, 0x00000020);
     ARM9->CP15Write(0x100, ARM9->CP15Read(0x100) | 0x00050000);
 
-    ARM9->R[12] = bootparams[1];
+    ARM9->R[12] = NDSCart::Header.ARM9EntryAddress;
     ARM9->R[13] = 0x03002F7C;
-    ARM9->R[14] = bootparams[1];
+    ARM9->R[14] = NDSCart::Header.ARM9EntryAddress;
     ARM9->R_IRQ[0] = 0x03003F80;
     ARM9->R_SVC[0] = 0x03003FC0;
 
-    ARM7->R[12] = bootparams[5];
+    ARM7->R[12] = NDSCart::Header.ARM7EntryAddress;
     ARM7->R[13] = 0x0380FD80;
-    ARM7->R[14] = bootparams[5];
+    ARM7->R[14] = NDSCart::Header.ARM7EntryAddress;
     ARM7->R_IRQ[0] = 0x0380FF80;
     ARM7->R_SVC[0] = 0x0380FFC0;
 
-    ARM9->JumpTo(bootparams[1]);
-    ARM7->JumpTo(bootparams[5]);
+    ARM9->JumpTo(NDSCart::Header.ARM9EntryAddress);
+    ARM7->JumpTo(NDSCart::Header.ARM7EntryAddress);
 
     PostFlag9 = 0x01;
     PostFlag7 = 0x01;
@@ -444,10 +452,6 @@ void SetupDirectBoot()
     SPU::SetBias(0x200);
 
     SetWifiWaitCnt(0x0030);
-
-    ARM7BIOSProt = 0x1204;
-
-    SPI_Firmware::SetupDirectBoot();
 }
 
 void Reset()
@@ -596,11 +600,24 @@ void Reset()
     RTC::Reset();
     Wifi::Reset();
 
+    // The SOUNDBIAS register does nothing on DSi
+    SPU::SetApplyBias(ConsoleType == 0);
+
+    bool degradeAudio = true;
+
     if (ConsoleType == 1)
     {
         DSi::Reset();
         KeyInput &= ~(1 << (16+6));
+        degradeAudio = false;
     }
+
+    if (Config::AudioBitrate == 1) // Always 10-bit
+        degradeAudio = true;
+    else if (Config::AudioBitrate == 2) // Always 16-bit
+        degradeAudio = false;
+
+    SPU::SetDegrade10Bit(degradeAudio);
 
     AREngine::Reset();
 }
@@ -660,7 +677,7 @@ bool DoSavestate_Scheduler(Savestate* file)
                         break;
                     }
                 }
-                if (funcid == -1)
+                if (funcid == 0xFFFFFFFF)
                 {
                     printf("savestate: VERY BAD!!!!! FUNCTION POINTER FOR EVENT %d NOT IN HACKY LIST. CANNOT SAVE. SMACK ARISOTURA.\n", i);
                     return false;
@@ -681,7 +698,7 @@ bool DoSavestate_Scheduler(Savestate* file)
             u32 funcid;
             file->Var32(&funcid);
 
-            if (funcid != -1)
+            if (funcid != 0xFFFFFFFF)
             {
                 for (int j = 0; ; j++)
                 {
@@ -1241,39 +1258,46 @@ void SetWifiWaitCnt(u16 val)
     WifiWaitCnt = val;
 
     const int ntimings[4] = {10, 8, 6, 18};
-    SetARM7RegionTimings(0x04800000, 0x04808000, 16, ntimings[val & 0x3], (val & 0x4) ? 4 : 6);
-    SetARM7RegionTimings(0x04808000, 0x04810000, 16, ntimings[(val>>3) & 0x3], (val & 0x20) ? 4 : 10);
+    SetARM7RegionTimings(0x04800, 0x04808, Mem7_Wifi0, 16, ntimings[val & 0x3], (val & 0x4) ? 4 : 6);
+    SetARM7RegionTimings(0x04808, 0x04810, Mem7_Wifi1, 16, ntimings[(val>>3) & 0x3], (val & 0x20) ? 4 : 10);
 }
 
 void SetGBASlotTimings()
 {
-    int curcpu = (ExMemCnt[0] >> 7) & 0x1;
-
     const int ntimings[4] = {10, 8, 6, 18};
+    const u16 openbus[4] = {0xFE08, 0x0000, 0x0000, 0xFFFF};
 
+    u16 curcpu = (ExMemCnt[0] >> 7) & 0x1;
     u16 curcnt = ExMemCnt[curcpu];
     int ramN = ntimings[curcnt & 0x3];
     int romN = ntimings[(curcnt>>2) & 0x3];
     int romS = (curcnt & 0x10) ? 4 : 6;
 
-    // TODO: PHI pin thing?
+    // GBA slot timings only apply on the selected side
 
     if (curcpu == 0)
     {
-        SetARM9RegionTimings(0x08000000, 0x0A000000, 16, romN + 3, romS);
-        SetARM9RegionTimings(0x0A000000, 0x0B000000, 8, ramN + 3, ramN);
+        SetARM9RegionTimings(0x08000, 0x0A000, Mem9_GBAROM, 16, romN, romS);
+        SetARM9RegionTimings(0x0A000, 0x0B000, Mem9_GBARAM, 8, ramN, ramN);
 
-        SetARM7RegionTimings(0x08000000, 0x0A000000, 32, 1, 1);
-        SetARM7RegionTimings(0x0A000000, 0x0B000000, 32, 1, 1);
+        SetARM7RegionTimings(0x08000, 0x0A000, 0, 32, 1, 1);
+        SetARM7RegionTimings(0x0A000, 0x0B000, 0, 32, 1, 1);
     }
     else
     {
-        SetARM9RegionTimings(0x08000000, 0x0A000000, 32, 1, 1);
-        SetARM9RegionTimings(0x0A000000, 0x0B000000, 32, 1, 1);
+        SetARM9RegionTimings(0x08000, 0x0A000, 0, 32, 1, 1);
+        SetARM9RegionTimings(0x0A000, 0x0B000, 0, 32, 1, 1);
 
-        SetARM7RegionTimings(0x08000000, 0x0A000000, 16, romN, romS);
-        SetARM7RegionTimings(0x0A000000, 0x0B000000, 8, ramN, ramN);
+        SetARM7RegionTimings(0x08000, 0x0A000, Mem7_GBAROM, 16, romN, romS);
+        SetARM7RegionTimings(0x0A000, 0x0B000, Mem7_GBARAM, 8, ramN, ramN);
     }
+
+    // this open-bus implementation is a rough way of simulating the way values
+    // lingering on the bus decay after a while, which is visible at higher waitstates
+    // for example, the Cartridge Construction Kit relies on this to determine that
+    // the GBA slot is empty
+
+    GBACart::SetOpenBusDecay(openbus[(curcnt>>2) & 0x3]);
 }
 
 
@@ -1418,10 +1442,7 @@ u64 GetSysClockCycles(int num)
 
 void NocashPrint(u32 ncpu, u32 addr)
 {
-    // addr: u16 flags (TODO: research? libnds doesn't use those)
-    // addr+2: debug string
-
-    addr += 2;
+    // addr: debug string
 
     ARM* cpu = ncpu ? (ARM*)ARM7 : (ARM*)ARM9;
     u8 (*readfn)(u32) = ncpu ? NDS::ARM7Read8 : NDS::ARM9Read8;
@@ -1475,11 +1496,11 @@ void NocashPrint(u32 ncpu, u32 addr)
                 else if (!strcmp(cmd, "pc")) sprintf(subs, "%08X", cpu->R[15]);
                 else if (!strcmp(cmd, "frame")) sprintf(subs, "%u", NumFrames);
                 else if (!strcmp(cmd, "scanline")) sprintf(subs, "%u", GPU::VCount);
-                else if (!strcmp(cmd, "totalclks")) sprintf(subs, "%lu", GetSysClockCycles(0));
-                else if (!strcmp(cmd, "lastclks")) sprintf(subs, "%lu", GetSysClockCycles(1));
+                else if (!strcmp(cmd, "totalclks")) sprintf(subs, "%" PRIu64, GetSysClockCycles(0));
+                else if (!strcmp(cmd, "lastclks")) sprintf(subs, "%" PRIu64, GetSysClockCycles(1));
                 else if (!strcmp(cmd, "zeroclks"))
                 {
-                    sprintf(subs, "");
+                    sprintf(subs, "%s", "");
                     GetSysClockCycles(1);
                 }
             }
@@ -1556,10 +1577,7 @@ void RunTimer(u32 tid, s32 cycles)
 {
     Timer* timer = &Timers[tid];
 
-    u32 oldcount = timer->Counter;
     timer->Counter += (cycles << timer->CycleShift);
-    //if (timer->Counter < oldcount)
-    //    HandleTimerOverflow(tid);
     while (timer->Counter >> 26)
     {
         timer->Counter -= (1 << 26);
@@ -1583,6 +1601,38 @@ void RunTimers(u32 cpu)
     if (timermask & 0x8) RunTimer((cpu<<2)+3, cycles);
 
     TimerTimestamp[cpu] += cycles;
+}
+
+const s32 TimerPrescaler[4] = {0, 6, 8, 10};
+
+u16 TimerGetCounter(u32 timer)
+{
+    RunTimers(timer>>2);
+    u32 ret = Timers[timer].Counter;
+
+    return ret >> 10;
+}
+
+void TimerStart(u32 id, u16 cnt)
+{
+    Timer* timer = &Timers[id];
+    u16 curstart = timer->Cnt & (1<<7);
+    u16 newstart = cnt & (1<<7);
+
+    RunTimers(id>>2);
+
+    timer->Cnt = cnt;
+    timer->CycleShift = 10 - TimerPrescaler[cnt & 0x03];
+
+    if ((!curstart) && newstart)
+    {
+        timer->Counter = timer->Reload << 10;
+    }
+
+    if ((cnt & 0x84) == 0x80)
+        TimerCheckMask[id>>2] |= 0x01 << (id&0x3);
+    else
+        TimerCheckMask[id>>2] &= ~(0x01 << (id&0x3));
 }
 
 
@@ -1669,55 +1719,6 @@ void StopDMAs(u32 cpu, u32 mode)
         cpu >>= 2;
         DSi::StopNDMAs(cpu, NDMAModes[mode]);
     }
-}
-
-
-
-
-const s32 TimerPrescaler[4] = {0, 6, 8, 10};
-
-u16 TimerGetCounter(u32 timer)
-{
-    RunTimers(timer>>2);
-    u32 ret = Timers[timer].Counter;
-
-    return ret >> 10;
-}
-
-void TimerStart(u32 id, u16 cnt)
-{
-    Timer* timer = &Timers[id];
-    u16 curstart = timer->Cnt & (1<<7);
-    u16 newstart = cnt & (1<<7);
-
-    timer->Cnt = cnt;
-    timer->CycleShift = 10 - TimerPrescaler[cnt & 0x03];
-
-    if ((!curstart) && newstart)
-    {
-        timer->Counter = timer->Reload << 10;
-
-        /*if ((cnt & 0x84) == 0x80)
-        {
-            u32 delay = (0x10000 - timer->Reload) << TimerPrescaler[cnt & 0x03];
-            printf("timer%d IRQ: start   %d, reload=%04X cnt=%08X\n", id, delay, timer->Reload, timer->Counter);
-            CancelEvent(Event_TimerIRQ_0 + id);
-            ScheduleEvent(Event_TimerIRQ_0 + id, false, delay, HandleTimerOverflow, id);
-        }*/
-    }
-
-    if ((cnt & 0x84) == 0x80)
-    {
-        u32 tmask;
-        //if ((cnt & 0x03) == 0)
-            tmask = 0x01 << (id&0x3);
-        //else
-        //    tmask = 0x10 << (id&0x3);
-
-        TimerCheckMask[id>>2] |= tmask;
-    }
-    else
-        TimerCheckMask[id>>2] &= ~(0x11 << (id&0x3));
 }
 
 
@@ -1869,7 +1870,7 @@ void debug(u32 param)
     //    printf("VRAM %c: %02X\n", 'A'+i, GPU::VRAMCNT[i]);
 
     /*FILE*
-    shit = fopen("debug/party.bin", "wb");
+    shit = fopen("debug/construct.bin", "wb");
     fwrite(ARM9->ITCM, 0x8000, 1, shit);
     for (u32 i = 0x02000000; i < 0x02400000; i+=4)
     {
@@ -1884,14 +1885,14 @@ void debug(u32 param)
     fclose(shit);*/
 
     FILE*
-    shit = fopen("debug/power9.bin", "wb");
+    shit = fopen("debug/directboot9.bin", "wb");
     for (u32 i = 0x02000000; i < 0x04000000; i+=4)
     {
         u32 val = DSi::ARM9Read32(i);
         fwrite(&val, 4, 1, shit);
     }
     fclose(shit);
-    shit = fopen("debug/power7.bin", "wb");
+    shit = fopen("debug/directboot7.bin", "wb");
     for (u32 i = 0x02000000; i < 0x04000000; i+=4)
     {
         u32 val = DSi::ARM7Read32(i);
@@ -2014,7 +2015,7 @@ u16 ARM9Read16(u32 addr)
               (GBACart::SRAMRead(addr+1) << 8);
     }
 
-    if (addr) printf("unknown arm9 read16 %08X %08X\n", addr, ARM9->R[15]);
+    //if (addr) printf("unknown arm9 read16 %08X %08X\n", addr, ARM9->R[15]);
     return 0;
 }
 
@@ -2075,7 +2076,7 @@ u32 ARM9Read32(u32 addr)
               (GBACart::SRAMRead(addr+3) << 24);
     }
 
-    printf("unknown arm9 read32 %08X | %08X %08X\n", addr, ARM9->R[15], ARM9->R[12]);
+    //printf("unknown arm9 read32 %08X | %08X %08X\n", addr, ARM9->R[15], ARM9->R[12]);
     return 0;
 }
 
@@ -2183,7 +2184,7 @@ void ARM9Write16(u32 addr, u16 val)
         return;
     }
 
-    if (addr) printf("unknown arm9 write16 %08X %04X\n", addr, val);
+    //if (addr) printf("unknown arm9 write16 %08X %04X\n", addr, val);
 }
 
 void ARM9Write32(u32 addr, u32 val)
@@ -2250,7 +2251,7 @@ void ARM9Write32(u32 addr, u32 val)
         return;
     }
 
-    printf("unknown arm9 write32 %08X %08X | %08X\n", addr, val, ARM9->R[15]);
+    //printf("unknown arm9 write32 %08X %08X | %08X\n", addr, val, ARM9->R[15]);
 }
 
 bool ARM9GetMemRegion(u32 addr, bool write, MemRegion* region)
@@ -2849,6 +2850,14 @@ u8 ARM9IORead8(u32 addr)
     {
         return GPU3D::Read8(addr);
     }
+    // NO$GBA debug register "Emulation ID"
+    if(addr >= 0x04FFFA00 && addr < 0x04FFFA10)
+    {
+        // FIX: GBATek says this should be padded with spaces
+        static char const emuID[16] = "melonDS " MELONDS_VERSION;
+        auto idx = addr - 0x04FFFA00;
+        return (u8)(emuID[idx]);
+    }
 
     printf("unknown ARM9 IO read8 %08X %08X\n", addr, ARM9->R[15]);
     return 0;
@@ -2975,6 +2984,12 @@ u16 ARM9IORead16(u32 addr)
 
     case 0x04000300: return PostFlag9;
     case 0x04000304: return PowerControl9;
+
+    case 0x04004000:
+    case 0x04004004:
+    case 0x04004010:
+        // shut up logging for DSi registers
+        return 0;
     }
 
     if ((addr >= 0x04000000 && addr < 0x04000060) || (addr == 0x0400006C))
@@ -3107,6 +3122,17 @@ u32 ARM9IORead32(u32 addr)
     case 0x04100010:
         if (!(ExMemCnt[0] & (1<<11))) return NDSCart::ReadROMData();
         return 0;
+
+    case 0x04004000:
+    case 0x04004004:
+    case 0x04004010:
+        // shut up logging for DSi registers
+        return 0;
+
+    // NO$GBA debug register "Clock Cycles"
+    // Since it's a 64 bit reg. the CPU will access it in two parts:
+    case 0x04FFFA20: return (u32)(GetSysClockCycles(0) & 0xFFFFFFFF);
+    case 0x04FFFA24: return (u32)(GetSysClockCycles(0) >> 32);
     }
 
     if ((addr >= 0x04000000 && addr < 0x04000060) || (addr == 0x0400006C))
@@ -3321,10 +3347,14 @@ void ARM9IOWrite16(u32 addr, u16 val)
     case 0x040001BA: ROMSeed1[4] = val & 0x7F; return;
 
     case 0x04000204:
-        ExMemCnt[0] = val;
-        ExMemCnt[1] = (ExMemCnt[1] & 0x007F) | (val & 0xFF80);
-        SetGBASlotTimings();
-        return;
+        {
+            u16 oldVal = ExMemCnt[0];
+            ExMemCnt[0] = val;
+            ExMemCnt[1] = (ExMemCnt[1] & 0x007F) | (val & 0xFF80);
+            if ((oldVal ^ ExMemCnt[0]) & 0xFF)
+                SetGBASlotTimings();
+            return;
+        }
 
     case 0x04000208: IME[0] = val & 0x1; UpdateIRQ(0); return;
     case 0x04000210: IE[0] = (IE[0] & 0xFFFF0000) | val; UpdateIRQ(0); return;
@@ -3535,6 +3565,34 @@ void ARM9IOWrite32(u32 addr, u32 val)
     case 0x04100010:
         if (!(ExMemCnt[0] & (1<<11)))  NDSCart::WriteROMData(val);
         return;
+
+    // NO$GBA debug register "String Out (raw)"
+    case 0x04FFFA10:
+        {
+            char output[1024] = { 0 };
+            char ch = '.';
+            for (size_t i = 0; i < 1023 && ch != '\0'; i++)
+            {
+                ch = NDS::ARM9Read8(val + i);
+                output[i] = ch;
+            }
+            printf("%s", output);
+            return;
+        }
+
+    // NO$GBA debug registers "String Out (with parameters)" and "String Out (with parameters, plus linefeed)"
+    case 0x04FFFA14:
+    case 0x04FFFA18:
+        {
+            bool appendLF = 0x04FFFA18 == addr;
+            NocashPrint(0, val);
+            if(appendLF)
+                printf("\n");
+            return;
+        }
+
+    // NO$GBA debug register "Char Out"
+    case 0x04FFFA1C: printf("%" PRIu32, val); return;
     }
 
     if (addr >= 0x04000000 && addr < 0x04000060)
@@ -3580,31 +3638,31 @@ u8 ARM7IORead8(u32 addr)
     case 0x040001A8:
         if (ExMemCnt[0] & (1<<11))
             return NDSCart::ROMCommand[0];
-            return 0;
+        return 0;
     case 0x040001A9:
         if (ExMemCnt[0] & (1<<11))
             return NDSCart::ROMCommand[1];
-            return 0;
+        return 0;
     case 0x040001AA:
         if (ExMemCnt[0] & (1<<11))
             return NDSCart::ROMCommand[2];
-            return 0;
+        return 0;
     case 0x040001AB:
         if (ExMemCnt[0] & (1<<11))
             return NDSCart::ROMCommand[3];
-            return 0;
+        return 0;
     case 0x040001AC:
         if (ExMemCnt[0] & (1<<11))
             return NDSCart::ROMCommand[4];
-            return 0;
+        return 0;
     case 0x040001AD:
         if (ExMemCnt[0] & (1<<11))
             return NDSCart::ROMCommand[5];
-            return 0;
+        return 0;
     case 0x040001AE:
         if (ExMemCnt[0] & (1<<11))
             return NDSCart::ROMCommand[6];
-            return 0;
+        return 0;
     case 0x040001AF:
         if (ExMemCnt[0] & (1<<11))
             return NDSCart::ROMCommand[7];
@@ -4002,9 +4060,13 @@ void ARM7IOWrite16(u32 addr, u16 val)
         return;
 
     case 0x04000204:
-        ExMemCnt[1] = (ExMemCnt[1] & 0xFF80) | (val & 0x007F);
-        SetGBASlotTimings();
-        return;
+        {
+            u16 oldVal = ExMemCnt[1];
+            ExMemCnt[1] = (ExMemCnt[1] & 0xFF80) | (val & 0x007F);
+            if ((ExMemCnt[1] ^ oldVal) & 0xFF)
+                SetGBASlotTimings();
+            return;
+        }
     case 0x04000206:
         SetWifiWaitCnt(val);
         return;

@@ -10,6 +10,8 @@ SET(SOURCES_QT_SDL
     AudioSettingsDialog.cpp
     WifiSettingsDialog.cpp
     InterfaceSettingsDialog.cpp
+    ROMInfoDialog.cpp
+	TitleManagerDialog.cpp
     Input.cpp
     LAN_PCap.cpp
     LAN_Socket.cpp
@@ -45,11 +47,12 @@ if (USE_QT6)
         set(Qt6Core_DIR ${QT6_STATIC_BASE}Core)
         set(Qt6Gui_DIR ${QT6_STATIC_BASE}Gui)
         set(Qt6Widgets_DIR ${QT6_STATIC_BASE}Widgets)
+        set(Qt6Network_DIR ${QT6_STATIC_BASE}Network)
         set(Qt6OpenGL_DIR ${QT6_STATIC_BASE}OpenGL)
         set(Qt6OpenGLWidgets_DIR ${QT6_STATIC_BASE}OpenGLWidgets)
     endif()
-    find_package(Qt6 COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets REQUIRED)
-    set(QT_LINK_LIBS Qt6::Core Qt6::Gui Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets)
+    find_package(Qt6 COMPONENTS Core Gui Widgets Network OpenGL OpenGLWidgets REQUIRED)
+    set(QT_LINK_LIBS Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::OpenGL Qt6::OpenGLWidgets)
 else()
     if (BUILD_STATIC AND QT5_STATIC_DIR)
         set(QT5_STATIC_BASE ${QT5_STATIC_DIR}/lib/cmake/Qt5)
@@ -57,9 +60,10 @@ else()
         set(Qt5Core_DIR ${QT5_STATIC_BASE}Core)
         set(Qt5Gui_DIR ${QT5_STATIC_BASE}Gui)
         set(Qt5Widgets_DIR ${QT5_STATIC_BASE}Widgets)
+        set(Qt5Network_DIR ${QT5_STATIC_BASE}Network)
     endif()
-    find_package(Qt5 COMPONENTS Core Gui Widgets REQUIRED)
-    set(QT_LINK_LIBS Qt5::Core Qt5::Gui Qt5::Widgets)
+    find_package(Qt5 COMPONENTS Core Gui Widgets Network REQUIRED)
+    set(QT_LINK_LIBS Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Network)
 endif()
 
 set(CMAKE_AUTOMOC ON)
@@ -82,7 +86,7 @@ endif()
 
 target_link_libraries(melonDS ${CMAKE_THREAD_LIBS_INIT})
 
-target_include_directories(melonDS PRIVATE ${SDL2_INCLUDE_DIRS} ${SLIRP_INCLUDE_DIRS} ${LIBARCHIVE_INCLUDE_DIRS})
+target_include_directories(melonDS PRIVATE ${SDL2_INCLUDE_DIRS} ${SDL2_PREFIX}/include ${SLIRP_INCLUDE_DIRS} ${LIBARCHIVE_INCLUDE_DIRS})
 target_link_directories(melonDS PRIVATE ${SDL2_LIBRARY_DIRS} ${SLIRP_LIBRARY_DIRS})
 target_link_directories(melonDS PRIVATE ${LIBARCHIVE_LIBRARY_DIRS})
 
@@ -136,7 +140,7 @@ if (APPLE)
     set_source_files_properties("${CMAKE_SOURCE_DIR}/melon.icns" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
     # Qt 6 requires macOS 10.15 if building on 10.15 or greater
-    if(CMAKE_SYSTEM_VERSION VERSION_GREATER 18.5.0)
+	if(CMAKE_SYSTEM_VERSION VERSION_GREATER_EQUAL 19.0.0)
         if (USE_QT6)
 	    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum OS X deployment version" FORCE)
         endif()

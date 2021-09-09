@@ -72,6 +72,8 @@ void Reset()
     Registers[0x81] = 0x64;
 }
 
+u8 GetBootFlag() { return Registers[0x70]; }
+
 void Start()
 {
     //printf("BPTWL: start\n");
@@ -98,7 +100,7 @@ void Write(u8 val, bool last)
         return;
     }
 
-    if (CurPos == -1)
+    if (CurPos == 0xFFFFFFFF)
     {
         CurPos = val;
         //printf("BPTWL: reg=%02X\n", val);
